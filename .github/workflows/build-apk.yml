@@ -1,0 +1,50 @@
+name: Build APK
+on:
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Trouver le projet
+        run: |
+          if ls ./*.zip >/dev/null 2>&1; then
+            unzip -q -o ./*.zip -d src
+            ROOT=$(dirname "$(find src -name settings.gradle.kts | head -1)")
+          else
+            ROOT=$(dirname "$(find . -name settings.gradle.kts | head -1)")
+          fi
+          echo "ROOT=$ROOT" >> "$GITHUB_ENV"
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Préparer le SDK Android
+        run: |
+          echo "sdk.dir=$ANDROID_HOME" > "$ROOT/local.properties"
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.7'
+      - name: Compiler
+        run: |
+          cd "$ROOT"
+          set +e
+          gradle :app:assembleDebug --stacktrace > build.log 2>&1
+          code=$?
+          echo "=== ERREURS ==="
+          grep -E "^e: |What went wrong|Execution failed|error:" -A2 build.log | head -60
+          exit $code
+      - name: Envoyer le journal complet
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log
+          path: ${{ env.ROOT }}/build.log
+      - name: Envoyer l'APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: IptvPlayer-debug-apk
+          path: ${{ env.ROOT }}/app/build/outputs/apk/debug/app-debug.apk
